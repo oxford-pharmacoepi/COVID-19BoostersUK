@@ -267,7 +267,7 @@ server <- function(input, output, session) {
       ) |>
       print()|>
       dplyr::mutate(
-        variable_name = case_when(variable_name == "Imd" ~ "IMD",
+        variable_name = case_when(variable_name == "Imd" ~ "TDI",
                                   TRUE ~ variable_name),
         group_level = pretty_labels(group_level)) |>
       omopgenerics::filterGroup(.data$cohort_name %in% input$summarise_characteristics_cohort_name) |>
@@ -319,60 +319,343 @@ server <- function(input, output, session) {
 
   # Vaccination Chronology -----
   ## vaccinated eligibles in campaign, imported by me 
+  library(dplyr)
+  library(readr)
+  library(ggplot2)
+  
+  plot_dose <- read.csv(here::here("plot_dose.csv"))
+  
+  plot_dose <- plot_dose |>
+    mutate(cohort_start_date = as.Date(cohort_start_date))
+  
+  plot_dosef <- plot_dose |> filter(n_dose_day>5L)
+  
+  campaigns <- tibble::tibble(
+    vaccination_campaign = c("a_2023","s_2024","a_2024","s_2025","a_2025"),
+    start    = as.Date(c("2023-10-02","2024-04-15","2024-10-03","2025-04-01","2025-10-01")), 
+    end      = as.Date(c("2024-01-31","2024-06-30","2025-01-31","2025-06-17","2026-01-31"))
+  ) |>
+    mutate(
+      split = case_when(
+        vaccination_campaign == "a_2023" ~ end - 47,
+        vaccination_campaign == "a_2024" ~ end - 42,
+        vaccination_campaign == "a_2025" ~ end - 45,
+        TRUE ~ as.Date(NA)
+      )
+    )|>
+    filter(!vaccination_campaign=="a_2025")
+  
+  bg_full <- campaigns |>
+    transmute(
+      vaccination_campaign,
+      xmin = start,
+      xmax = end,
+      ymin = -Inf,
+      ymax = Inf
+    )
+  
+  bg_tail <- campaigns |>
+    filter(!is.na(split)) |>
+    transmute(
+      vaccination_campaign,
+      xmin = split,
+      xmax = end,
+      ymin = -Inf,
+      ymax = Inf
+    )
+  
+  plot_dosef <- plot_dosef |>
+    mutate(
+      Dose = factor(
+        paste(dose, "dose"),
+        levels = paste(1:13, "dose"),
+        ordered = TRUE
+      )
+    )|>
+    collect(name=plot_dosef) 
+  
+  y_max <- max(plot_dosef$n_dose_day, na.rm = TRUE) * 1.05
+  
+  bg_full <- campaigns |>
+    transmute(vaccination_campaign, xmin = start, xmax = end, ymin = 0, ymax = y_max)
+  
+  bg_tail <- campaigns |>
+    filter(!is.na(split)) |>
+    transmute(vaccination_campaign, xmin = split, xmax = end, ymin = 0, ymax = y_max)
+  graph <- ggplot(plot_dosef|>filter(!vaccination_campaign == "a_2025"), aes(x = cohort_start_date, y = n_dose_day, fill = Dose)) +
+    geom_rect(
+      data = bg_full,
+      aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+      inherit.aes = FALSE,
+      fill = "grey90",
+      alpha = 0.5
+    ) +
+    geom_rect(
+      data = bg_tail,
+      aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+      inherit.aes = FALSE,
+      fill = "grey75",
+      alpha = 0.6
+    ) +
+    geom_col(position = "stack", width = 1) +
+    scale_x_date(date_breaks = "3 month", 
+                 limits = c(as.Date("2020-12-01"), NA),
+                 date_labels = "%Y-%m", expand = c(0, 0)) +
+    theme_bw() +
+    theme(legend.position = "bottom", axis.text.x = element_text(angle = 45, hjust = 1)) +
+    labs(x = "Date", y = "Number of vaccine recipients")
+  print(graph) 
+
+  ac <- plot_dosef |> group_by(Dose) |>
+    mutate(
+      acummulative_vaccination = cumsum(n_dose_day)
+    ) |>
+    ungroup() 
+  y_max <- max(ac$acummulative_vaccination, na.rm = TRUE) * 1.05
+  
+  bg_full <- campaigns |>
+    transmute(vaccination_campaign, xmin = start, xmax = end, ymin = 0, ymax = y_max)
+  
+  bg_tail <- campaigns |>
+    filter(!is.na(split)) |>
+    transmute(vaccination_campaign, xmin = split, xmax = end, ymin = 0, ymax = y_max)
+  plot0 <- ggplot(ac, aes(x = cohort_start_date, y = acummulative_vaccination, colour = Dose)) +
+    geom_rect(
+      data = bg_full,
+      aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+      inherit.aes = FALSE,
+      fill = "grey90",
+      alpha = 0.5
+    ) +
+    geom_rect(
+      data = bg_tail,
+      aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+      inherit.aes = FALSE,
+      fill = "grey75",
+      alpha = 0.6
+    ) +
+    geom_line(linewidth = 1) +
+    scale_x_date(
+      date_breaks = "3 month",
+      limits = c(as.Date("2020-12-01"), NA),
+      date_labels = "%Y-%m",
+      expand = c(0, 0)
+    ) +
+    scale_y_continuous(
+      expand = expansion(mult = c(0, 0.05)),
+      breaks = scales::pretty_breaks(n = 5),
+      labels = scales::label_number(big.mark = ",")
+    ) +
+    theme_bw() +
+    theme(
+      legend.position = "bottom",
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      axis.text.y = element_text(margin = margin(r = 6)),
+      axis.title.y = element_text(margin = margin(r = 10)),
+      plot.margin = margin(10, 30, 10, 20)
+    ) +
+    guides(colour = guide_legend(nrow = 2)) +
+    labs(
+      x = "Date",
+      y = "Cumulative number of vaccine recipients",
+      colour = "Dose:"
+    )
+  
+  library(dplyr)
+  library(readr)
+  library(ggplot2)
+  
+  plot_dose <- read.csv(here::here("plot_dosee.csv"))
+  
+  plot_dose <- plot_dose |>
+    mutate(cohort_start_date = as.Date(cohort_start_date))
+  
+  plot_dosef <- plot_dose |> filter(n_dose_day>5L)
+  
+  campaigns <- tibble::tibble(
+    vaccination_campaign = c("a_2023","s_2024","a_2024","s_2025","a_2025"),
+    start    = as.Date(c("2023-10-02","2024-04-15","2024-10-03","2025-04-01","2025-10-01")), 
+    end      = as.Date(c("2024-01-31","2024-06-30","2025-01-31","2025-06-17","2026-01-31"))
+  ) |>
+    mutate(
+      split = case_when(
+        vaccination_campaign == "a_2023" ~ end - 47,
+        vaccination_campaign == "a_2024" ~ end - 42,
+        vaccination_campaign == "a_2025" ~ end - 45,
+        TRUE ~ as.Date(NA)
+      )
+    )
+  
+  plot_dosef <- plot_dosef |>
+    mutate(
+      Dose = factor(
+        paste(dose, "dose"),
+        levels = paste(3: 12, "dose"),
+        ordered = TRUE
+      )
+    )|>
+    collect(name=plot_dosef) 
+  
+  plot_with_campaign <- plot_dosef |>
+    filter(vaccination_campaign!="None" & !is.na(vaccination_campaign))
+  
+  plot_with_campaign <- plot_with_campaign |>
+    left_join(campaigns, by = "vaccination_campaign") |>
+    mutate(day_campaign = cohort_start_date - start) |>
+    mutate(vaccination_campaign = factor(vaccination_campaign,
+                                         levels = c("a_2023", "s_2024", "a_2024", "s_2025"), 
+                                         labels = c("Autumn 2023", "Spring 2024",
+                                                    "Autumn 2024", "Spring 2025"),
+                                         ordered = TRUE))
+  
+  campaign_bands <- campaigns |>
+    mutate(
+      x_end = as.numeric(end - start),
+      x_split = case_when(
+        vaccination_campaign == "a_2023" ~ x_end - 47,
+        vaccination_campaign == "a_2024" ~ x_end - 42,
+        vaccination_campaign == "a_2025" ~ x_end - 45,
+        TRUE ~ NA_real_
+      )
+    )|>
+    mutate(vaccination_campaign = factor(vaccination_campaign,
+                                         levels = c("a_2023", "s_2024", "a_2024", "s_2025"), 
+                                         labels = c("Autumn 2023", "Spring 2024",
+                                                    "Autumn 2024", "Spring 2025"),
+                                         ordered = TRUE)) |>
+    filter(!is.na(vaccination_campaign))
+  
+  bg_full <- campaign_bands |>
+    transmute( #mutate(.keep = "none")
+      vaccination_campaign,
+      xmin = 0,
+      xmax = x_end,
+      ymin = -Inf,
+      ymax = Inf
+    )
+  
+  bg_tail <- campaign_bands |>
+    filter(!is.na(x_split)) |>
+    transmute(
+      vaccination_campaign,
+      xmin = x_split,
+      xmax = x_end,
+      ymin = -Inf,
+      ymax = Inf
+    )
+  
+  graph2 <- ggplot(
+    plot_with_campaign |>
+      filter(!is.na(vaccination_campaign)) |>
+      mutate(day_campaign = as.numeric(day_campaign)),
+    aes(x = day_campaign, y = n_dose_day, fill = Dose)
+  ) +
+    geom_rect(
+      data = bg_full,
+      aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+      inherit.aes = FALSE,
+      fill = "grey90",
+      alpha = 0.5
+    ) +
+    geom_rect(
+      data = bg_tail,
+      aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+      inherit.aes = FALSE,
+      fill = "grey75",
+      alpha = 0.6
+    ) +
+    geom_col() +
+    facet_grid(vaccination_campaign ~ ., scales = "free_x", space = "free_x") +
+    scale_x_continuous(expand = c(0, 0)) +
+    theme_bw() +
+    theme(axis.title = element_text(size = 20),      # x and y axis titles
+          axis.text = element_text(size = 14),       # axis tick labels
+          legend.title = element_text(size = 16),    # legend title
+          legend.text = element_text(size = 14),     # legend labels
+          plot.title = element_text(size = 18),      # plot title
+          strip.text = element_text(size = 14)       # facet labels
+    ) +
+    labs(x = "Days since campaign start", y = "Number of vaccine recipients")
+  
+  print(graph2)
+  
   output$eligibles_plot1 <- shiny::renderUI({
-      img <- "vaccinated_all1.png"
-    shiny::tags$img(src = img, width = "80%")
+    x <- graph
+    renderInteractivePlot(x, TRUE)
   })
   
   output$eligibles_plot <- shiny::renderUI({
-      img <- "EligiblesVaccinatedInCampaign1.png"
-    shiny::tags$img(src = img, width = "80%")
+    x <- graph2
+    renderInteractivePlot(x, TRUE)
+  })
+  
+  output$cumulative_eligibles_plot <- shiny::renderUI({
+    x <- plot0
+    renderInteractivePlot(x, TRUE)
   })
   
   output$summarise_choronology_plot_download1 <- shiny::downloadHandler(
     filename = function() {
-        "vaccinated_all1.png"
+      "vaccinated_all1.png"
     },
     content = function(file) {
-        file.copy("www/vaccinated_all1.png", file)
+      ggplot2::ggsave(
+        filename = file,
+        plot = graph,
+        width = 15,
+        height = 15,
+        units = "cm",
+        dpi = 300
+      )
     }
   )
   
   output$summarise_choronology_plot_download <- shiny::downloadHandler(
     filename = function() {
-        "EligiblesVaccinatedInCampaign1.png"
+      "EligiblesVaccinatedInCampaign1.png"
     },
     content = function(file) {
-        file.copy("www/EligiblesVaccinatedInCampaign.png", file)
-      }
+      ggplot2::ggsave(
+        filename = file,
+        plot = graph2,
+        width = 15,
+        height = 15,
+        units = "cm",
+        dpi = 300
+      )
+    }
   )
-
+  
+  output$summarise_choronology_plot_download3 <- shiny::downloadHandler(
+    filename = function() {
+      "CumulativeVaccinationChronologyOverall.png"
+    },
+    content = function(file) {
+      ggplot2::ggsave(
+        filename = file,
+        plot = plot0,
+        width = 15,
+        height = 15,
+        units = "cm",
+        dpi = 300
+      )
+    }
+  )
   # vaccinated_table (Strata)-----
   ## update message if filter is changed
-  
   shiny::observe({
     updateButtons$vaccinated_table <- TRUE
   }) |>
     shiny::bindEvent(
       input$vaccinated_table_cdm_name,
-      input$vaccinated_table_cohort_name,input$vaccinated_table_table_name,
-      input$vaccinated_table_region,
-      input$vaccinated_table_imd,
-      input$vaccinated_table_sex,
-      input$vaccinated_table_ethnicity,
-      input$vaccinated_table_prior_dose,
-      input$vaccinated_table_immunosuppressed,
-      input$vaccinated_table_age_group,
-      input$vaccinated_table_age_eligibility,
-      input$vaccinated_table_table_name,
-      input$vaccinated_table_variable_name,
-      input$vaccinated_table_estimate_name,
+      input$vaccinated_table_cohort_name,
+      input$vaccinated_table_plot_strata_columns,
       ignoreInit = TRUE
     )
   
   shiny::observeEvent(updateButtons$vaccinated_table, {
     if (updateButtons$vaccinated_table == TRUE) {
-      output$update_message_vaccinated_table <- shiny::renderUI(updateMessage)
+      output$update_message_svaccinated_table <- shiny::renderUI(updateMessage)
     } else {
       output$update_message_vaccinated_table <- shiny::renderUI(NULL)
     }
@@ -381,91 +664,71 @@ server <- function(input, output, session) {
   shiny::observeEvent(input$update_vaccinated_table, {
     updateButtons$vaccinated_table <- FALSE
   })
-  
-  ## get summarise_table data
-  
-
-  getVaccinatedTableData <- shiny::eventReactive(input$update_vaccinated_table, {
-    data[["vaccinated_table"]] |>
-      
-      dplyr::filter(
-      .data$cdm_name %in% input$vaccinated_table_cdm_name ) |>
-      mutate(group_level = dplyr::recode(
-        group_level,
-        a_2023 = "Autumn 2023",
-        s_2024 = "Spring 2024",
-        a_2024 = "Autumn 2024",
-        s_2025 = "Spring 2025"
-      ), 
-      strata_name = dplyr::recode(
-        strata_name,
-        ethnicity = "Ethnicity",
-        sex = "Sex",
-        prior_dose = "Prior dose",
-        imd = "IMD",
-        age_eligibility = "Age eligibility",
-        immunosuppressed = "Immunosuppressed",
-        age_group = "Age group",
-        overall = "Overall",
-        region = "Region"),
-      group_level = factor(
-        group_level,
-        levels = c("Autumn 2023", "Spring 2024", "Autumn 2024", "Spring 2025")
-      )) |>
-      # print()|>
-      # omopgenerics::filterStrata(
-      #   .data$region %in% input$vaccinated_table_region,
-      #   .data$imd %in% input$vaccinated_table_imd,
-      #   .data$sex %in% input$vaccinated_table_sex,
-      #   .data$ethnicity %in% input$vaccinated_table_ethnicity,
-      #   .data$prior_dose %in% input$vaccinated_table_prior_dose,
-      #   .data$immunosuppressed %in% input$vaccinated_table_immunosuppressed,
-      #   .data$age_group %in% input$vaccinated_table_age_group,
-      #   .data$age_eligibility %in% input$vaccinated_table_age_eligibility
-      # ) |>
-      
-      omopgenerics::filterGroup(.data$cohort_name %in% input$vaccinated_table_cohort_name) 
-  })
-  
   plot_levels <- c("England", "Northern Ireland", "Scotland", "Wales", 
-                   "Q1 (least deprived)", "Q2", "Q3", "Q4", "Q5 (most deprived)",
-                   "White", "Black", "Asian", "Missing",
+                   "Q1(least deprived)", "Q2", "Q3", "Q4", "Q5(most deprived)",
+                   "White", "Black", "Asian", "Unknown",
                    "Female", "Male", as.character(2:11),
                    "No", "Yes", "<=34", "35-44", "45-54", "55-64",
                    "65-74", "75-84", "85-94", ">=95", "Overall")
-  
-  getVaccinatedTablePlot <- shiny::reactive({
-    strata_cols_selected <- input[["vaccinated_table_plot_strata_columns"]] 
-    df <- getVaccinatedTableData() |>
-      print()|>
+  getVaccinatedTableData <- shiny::eventReactive(input$update_vaccinated_table, {
+    data[["vaccinated_table"]] |>
       dplyr::filter(
         .data$variable_name == "vaccinated",
         .data$estimate_name == "count"
       ) |>
+      dplyr::filter(
+        .data$cdm_name %in% input$vaccinated_table_cdm_name) |>
       print()|>
-      dplyr::mutate(
-        estimate_value = as.numeric(estimate_value),
+      mutate(group_level = dplyr::recode(
+        .data$group_level,
+        a_2023 = "Autumn 2023",
+        s_2024 = "Spring 2024",
+        a_2024 = "Autumn 2024",
+        s_2025 = "Spring 2025"
+      ),
+      strata_name = dplyr::recode(
+        .data$strata_name,
+        ethnicity = "Ethnicity",
+        sex = "Sex",
+        prior_dose = "Prior dose",
+        imd = "TDI",
+        age_eligibility = "Age eligibility",
+        immunosuppressed = "Immunosuppressed",
+        age_group = "Age group",
+        overall = "Overall",
+        region = "Region"))|>
+      print()|>
+      mutate(group_level = factor(
+        .data$group_level,
+        levels = c("Autumn 2023", "Spring 2024", "Autumn 2024", "Spring 2025")),
+        #estimate_value = as.numeric(.data$estimate_value),
         strata_level = dplyr::recode(
-          strata_level, 
-          Q1 = "Q1 (least deprived)",
-          Q5 = "Q5 (most deprived)",
+          .data$strata_level, 
+          Q1 = "Q1(least deprived)",
+          Q5 = "Q5(most deprived)",
           `0` = "No",
           `1` = "Yes",
-          missing = "Missing",
+          missing = "Unknown",
           asian = "Asian",
           black = "Black",
           white = "White",
-          overall = "Overall"),
-          strata_level=factor(
-            strata_level,
-            levels = plot_levels,
-            ordered = TRUE
-          )
-      ) |>
-      #dplyr::filter(!is.na(.data$variable_name)) |>
-      dplyr:: filter(.data$strata_name %in% strata_cols_selected) |>
-      dplyr::filter(!is.na(.data$estimate_value))|>
+          overall = "Overall"))|>
+      print()|>
+      omopgenerics::filterGroup(.data$cohort_name %in% input$vaccinated_table_cohort_name) |>
+      filter(.data$strata_name %in% input$vaccinated_table_plot_strata_columns) |>
       print()
+  })
+  
+  
+  ## get coverage plots
+  getVaccinatedTablePlot <- shiny::reactive({
+    
+    df <- getVaccinatedTableData() |>
+      print()|>
+      #mutate(strata_level=if_else(is.na(.data$strata_level), "Overall", 
+      #                                  .data$strata_level)) |>
+      dplyr::mutate(estimate_value = as.numeric(.data$estimate_value)) |>
+      dplyr::filter(!is.na(.data$estimate_value))
     
     ggplot2::ggplot(
       df,
@@ -479,131 +742,35 @@ server <- function(input, output, session) {
       ) +
       ggplot2::scale_y_discrete(
         limits = function(x) {
-          intersect(plot_levels, x) 
+          intersect(c("England", "Northern Ireland", "Scotland", "Wales", 
+                      "Q1(least deprived)", "Q2", "Q3", "Q4", "Q5(most deprived)",
+                      "White", "Black", "Asian", "Unknown",
+                      "Female", "Male", as.character(2:11),
+                      "No", "Yes", "<=34", "35-44", "45-54", "55-64",
+                      "65-74", "75-84", "85-94", ">=95", "Overall"), x) 
         },
         drop = TRUE
       ) +
-      # ggplot2::scale_x_continuous(
-      #   breaks = scales::breaks_pretty(n = 4))+
+      ggplot2::scale_x_continuous(
+        breaks = scales::breaks_pretty(n = 4),
+        labels = scales::label_percent(scale = 1)
+      )+
       ggplot2::labs(x =NULL, y = "Number of vaccine booster recipients") +
       ggplot2::theme_minimal() +
       ggplot2::theme(panel.grid = element_blank(),
-                         strip.text.x = ggplot2::element_text(
-                           size = 16,
-                           face = "bold"
-                         )
-                     # strip.text.y = ggplot2::element_text(
-                     #   size = 14,
-                     #   face = "bold"
-                     #   )
-                     )
-                     #axis.text.x = ggplot2::element_text(angle = 45, hjust = 1)
+                     strip.text.x = ggplot2::element_text(
+                       size = 16,
+                       face = "bold"
+                     ))
   })
-  #   strata_cols_not <- setdiff(
-  #     c("region", "imd", "sex", "ethnicity", "prior_dose"),
-  #     strata_cols_selected
-  #   )
-  #   
-  #   strata_cols <- intersect(
-  #     strata_cols_selected,
-  #     c("region", "imd", "sex", "ethnicity", "prior_dose")
-  #   )
-  #   
-  #   shiny::req(length(strata_cols) > 0)
-  #   
-  #   df <- getVaccinatedTableData() |>
-  #     # omopgenerics::addSettings() |>
-  #     omopgenerics::splitAll() |>
-  #     dplyr::filter(
-  #       .data$variable_name == "number subjects"
-  #     ) |>
-  #     print()|>
-  #     dplyr::mutate(
-  #       n = suppressWarnings(readr::parse_number(as.character(.data$estimate_value)))
-  #     ) |>
-  #     dplyr::filter(!is.na(.data$n))|>
-  #     # dplyr::filter(
-  #     #   dplyr::if_all(dplyr::all_of(strata_cols_not), ~ .x == "overall")
-  #     # ) |>
-  #     print()|>
-  #     dplyr::mutate(
-  #       dplyr::across(dplyr::all_of(strata_cols), ~ dplyr::coalesce(as.character(.x), "NA"))
-  #     ) 
-  #     for (ii in strata_cols_not) {
-  #       if ("overall" %in% df[[ii]]) {
-  #         df <- df |>
-  #           dplyr::filter(.data[[ii]] == "overall")
-  #       }
-  #     }
-  # 
-  #   shiny::req(length(strata_cols) > 0)
-  #   
-  #   if (isTRUE(input$vaccinated_table_plot_combine)) {
-  #     df <- df |>
-  #       dplyr::mutate(
-  #         dplyr::across(dplyr::all_of(strata_cols), ~ dplyr::coalesce(as.character(.x), "NA"))
-  #       ) |>
-  #       tidyr::unite(
-  #         col = "strata_label",
-  #         dplyr::all_of(strata_cols),
-  #         sep = "-",
-  #         remove = FALSE
-  #       ) |>
-  #       print()|>
-  #       dplyr::group_by(.data$strata_label, .data$cohort_name) |>
-  #       dplyr::summarise(n = sum(.data$n, na.rm = TRUE), .groups = "drop")|>
-  #       print()
-  #     
-  #     ggplot2::ggplot(df, ggplot2::aes(x = .data$strata_label, y = .data$n, fill = .data$strata_label)) +
-  #       ggplot2::geom_col(show.legend = FALSE) +
-  #       ggplot2::labs(x = "Strata", y = "n") +
-  #       ggplot2::theme_minimal() +
-  #       ggplot2::facet_wrap(~.data$cohort_name, scales = "free_x") +
-  #       ggplot2::theme(panel.grid = element_blank(),
-  #         axis.text.x = ggplot2::element_text(angle = 45, hjust = 1)
-  #       )
-  #     
-  #   } else {
-  #     df_long <- purrr::map_dfr(strata_cols, \(ii) {
-  #       other_cols <- setdiff(strata_cols, ii)
-  #         if ("overall" %in% df[[ii]]) {
-  #           df |>
-  #             dplyr::filter(.data[[ii]] == "overall")
-  #         }
-  #       df|>
-  #         dplyr::transmute(
-  #           strata_name = ii,
-  #           strata_level = .data[[ii]],
-  #           n = .data$n,
-  #           cohort_name = .data$cohort_name
-  #         )
-  #     }) |> 
-  #       print()|>
-  #       dplyr::group_by(.data$strata_name, .data$strata_level, .data$cohort_name) |>
-  #       dplyr::summarise(n = sum(.data$n, na.rm = TRUE), .groups = "drop")|>
-  #       print()
-  #       
-  #     
-  #     ggplot2::ggplot(df_long, ggplot2::aes(x = .data$strata_level, y = .data$n, fill = .data$strata_level)) +
-  #       ggplot2::geom_col(show.legend = FALSE) +
-  #       ggplot2::facet_grid(
-  #         rows = ggplot2::vars(cohort_name),
-  #         cols = ggplot2::vars(strata_name),
-  #         scales = "free_x") +
-  #       ggplot2::labs(x="",y = "n") + #x = "Strata level", 
-  #       ggplot2::theme_minimal() +
-  #       ggplot2::theme(panel.grid = element_blank(),
-  #         axis.text.x = ggplot2::element_text(angle = 45, hjust = 1)
-  #       )
-  #   }
-  # })
+  
   output$vaccinated_table_plot <- shiny::renderUI({
     x <- getVaccinatedTablePlot()
     renderInteractivePlot(x, input$vaccinated_table_plot_interactive)
   })
   
-  output$vaccinated_table_plot_download <- shiny::downloadHandler(
-    filename = "plot_strata.png",
+  output$vaccinated_tble_plot_download <- shiny::downloadHandler(
+    filename = "plot_vaccinated.png",
     content = function(file) {
       ggplot2::ggsave(
         filename = file,
@@ -615,6 +782,7 @@ server <- function(input, output, session) {
       )
     }
   )
+  
   # summarise_table (Coverage)-----
   ## update message if filter is changed 
 
@@ -695,7 +863,7 @@ server <- function(input, output, session) {
       mutate(strata_name = case_when(.data$strata_name=="ethnicity" ~ "Ethnicity",
                                      .data$strata_name=="sex" ~ "Sex",
                                      .data$strata_name=="prior_dose" ~ "Prior dose",
-                                     .data$strata_name=="imd" ~ "IMD",
+                                     .data$strata_name=="imd" ~ "TDI",
                                      .data$strata_name=="age_eligibility" ~ "Age eligibility",
                                      .data$strata_name=="immunosuppressed" ~ "Immunosuppressed",
                                      .data$strata_name=="age_group" ~ "Age group",
@@ -746,7 +914,7 @@ server <- function(input, output, session) {
   ## get summarise_table data
   plot_levels <- c("England", "Northern Ireland", "Scotland", "Wales", 
                    "Q1(least deprived)", "Q2", "Q3", "Q4", "Q5(most deprived)",
-                   "White", "Black", "Asian", "Missing",
+                   "White", "Black", "Asian", "Unknown",
                    "Female", "Male", as.character(2:11),
                    "No", "Yes", "<=34", "35-44", "45-54", "55-64",
                    "65-74", "75-84", "85-94", ">=95", "Overall")
@@ -772,7 +940,7 @@ server <- function(input, output, session) {
         ethnicity = "Ethnicity",
         sex = "Sex",
         prior_dose = "Prior dose",
-        imd = "IMD",
+        imd = "TDI",
         age_eligibility = "Age eligibility",
         immunosuppressed = "Immunosuppressed",
         age_group = "Age group",
@@ -789,7 +957,7 @@ server <- function(input, output, session) {
         Q5 = "Q5(most deprived)",
           `0` = "No",
           `1` = "Yes",
-          missing = "Missing",
+          missing = "Unknown",
           asian = "Asian",
           black = "Black",
           white = "White",
@@ -831,7 +999,7 @@ server <- function(input, output, session) {
         limits = function(x) {
           intersect(c("England", "Northern Ireland", "Scotland", "Wales", 
                       "Q1(least deprived)", "Q2", "Q3", "Q4", "Q5(most deprived)",
-                      "White", "Black", "Asian", "Missing",
+                      "White", "Black", "Asian", "Unknown",
                       "Female", "Male", as.character(2:11),
                       "No", "Yes", "<=34", "35-44", "45-54", "55-64",
                       "65-74", "75-84", "85-94", ">=95", "Overall"), x) 
@@ -1208,7 +1376,7 @@ server <- function(input, output, session) {
     age_group = "Age group",
     sex = "Sex",
     ethnicity = "Ethnicity",
-    imd = "IMD",
+    imd = "TDI",
     region = "Region",
     immuno = "Immunosuppression"
   )
@@ -1313,7 +1481,7 @@ server <- function(input, output, session) {
             Sex = "#0000CC",
             Ethnicity = "deeppink2",
             Region = "darkorange1",
-            IMD = "#009900",
+            TDI = "#009900",
             Immunosuppression = "magenta4"
             
           ),
@@ -1375,13 +1543,13 @@ server <- function(input, output, session) {
             Sex = "#0000CC",
             Ethnicity = "deeppink2",
             Region = "darkorange1",
-            IMD = "#009900",
+            TDI = "#009900",
             Immunosuppression = "magenta4"
             
           ),
           labels = c(
             "Age group", "Sex", "Ethnicity",
-            "Region", "IMD", "I*: Immunosupression"
+            "Region", "TDI", "I*: Immunosupression"
           ),
           name = "Covariates: "
         ) +

@@ -692,7 +692,7 @@ ui <- bslib::page_navbar(
           shinyWidgets::pickerInput(
             inputId = "vaccinated_table_plot_strata_columns",
             label = "Strata to use",
-            choices = c("Region", "IMD", "Sex", "Ethnicity", "Prior dose", "Immunosuppressed",
+            choices = c("Region", "TDI", "Sex", "Ethnicity", "Prior dose", "Immunosuppressed",
                         "Age group", "Age eligibility", "Overall"),
             selected = c("Sex", "Ethnicity"),
             multiple = TRUE,
@@ -706,7 +706,7 @@ ui <- bslib::page_navbar(
         ),
         bslib::navset_card_tab(
           bslib::nav_panel(
-            title = "Stratification",
+            title = "Stratification plot",
             bslib::card(
               full_screen = TRUE,
               fill = TRUE,
@@ -745,14 +745,14 @@ ui <- bslib::page_navbar(
                 shiny::downloadButton(
                   outputId = "summarise_choronology_plot_download1",
                   label = "Download png"
-                  )
-                ),
-              class = "text-end"
+                )
               ),
-            bslib::layout_sidebar(
-            shiny::uiOutput("eligibles_plot1")|> shinycssloaders::withSpinner()
+              class = "text-end"
+            ),
+            shinycssloaders::withSpinner(
+              shiny::uiOutput("eligibles_plot1")
             )
-          )  
+          )
         ),
         bslib::nav_panel(
           title = "Vaccinated eligibles in booster Campaigns",
@@ -768,10 +768,30 @@ ui <- bslib::page_navbar(
               ),
               class = "text-end"
             ),
-            bslib::layout_sidebar(
-              shiny::uiOutput("eligibles_plot")|> shinycssloaders::withSpinner()
+            shinycssloaders::withSpinner(
+              shiny::uiOutput("eligibles_plot")
             )
-          )  
+          )
+        ),
+        bslib::nav_panel(
+          title = "Cumulative vaccination chronology overall",
+          bslib::card(
+            full_screen = TRUE,
+            bslib::card_header(
+              bslib::popover(
+                shiny::icon("download"),
+                shiny::downloadButton(
+                  outputId = "summarise_choronology_plot_download3",
+                  label = "Download png"
+                )
+              ),
+              class = "text-end"
+            ),
+            shinycssloaders::withSpinner(
+              shiny::tags$div(style = "width:100%; height:800px;", 
+                              shiny::uiOutput("cumulative_eligibles_plot"))
+            )
+          )
         )
       )
     )
@@ -821,7 +841,7 @@ ui <- bslib::page_navbar(
           ),
           shinyWidgets::pickerInput(
             inputId = "summarise_table_imd",
-            label = "IMD",
+            label = "TDI",
             choices = c("Q1 (least deprived)", "Q2", "Q3", "Q4", "Q5 (most deprived)"),
             selected = c("Q1 (least deprived)", "Q2", "Q3", "Q4", "Q5 (most deprived)"),
             multiple = TRUE,
@@ -838,8 +858,8 @@ ui <- bslib::page_navbar(
           shinyWidgets::pickerInput(
             inputId = "summarise_table_ethnicity",
             label = "Ethnicity",
-            choices = c("White", "Black", "Asian", "Missing"),
-            selected = c("White", "Black", "Asian", "Missing"),
+            choices = c("White", "Black", "Asian", "Unknown"),
+            selected = c("White", "Black", "Asian", "Unknown"),
             multiple = TRUE,
             options = list(`actions-box` = TRUE, size = 10, `selected-text-format` = "count > 3")
           ),
@@ -1044,7 +1064,7 @@ ui <- bslib::page_navbar(
           shinyWidgets::pickerInput(
             inputId = "summarise_coverage_plot_strata_columns",
             label = "Strata to use",
-            choices = c("Region", "IMD", "Sex", "Ethnicity", "Prior dose", "Immunosuppressed",
+            choices = c("Region", "TDI", "Sex", "Ethnicity", "Prior dose", "Immunosuppressed",
                         "Age group", "Age eligibility", "Overall"),
             selected = c("Sex", "Ethnicity"),
             multiple = TRUE,

@@ -25,19 +25,45 @@ library(sortable)
 library(tidyr)
 library(visOmopResults)
 library(yaml)
-
+library(dplyr)
+library(readr)
+library(ggplot2)
 # preprocess data if it has not been done
+
+
 fileData <- file.path(getwd(), "data", "studyData.RData")
 if (!file.exists(fileData)) {
   source(file.path(getwd(), "rawData", "preprocess.R"))
 }
 tidy_fit <- readr::read_csv(file.path(getwd(), "all_results.csv"), show_col_types = FALSE)
-# uncomment to load the raw data
-#a<- omopgenerics::importSummarisedResult(file.path(getwd(), "rawData"))
+plot_dose <- read.csv(here::here("plot_dose.csv"))
+
+# uncomment to load the raw data (this should go within preprocess)
+#a_original<- omopgenerics::importSummarisedResult(file.path(getwd(), "rawData"))
 # b <- settings(a)|>mutate(table_name = case_when(table_name=="vaccine_washout" ~ "Vaccination records of the overall population",
 #                                                  table_name=="vaccinated_within_campaigns" ~ "Vaccinated eligibles",
 #                                                  table_name=="all_campaigns" ~ "Eligibles for vaccination"))
-rawData <- omopgenerics::importSummarisedResult(file.path(getwd(), "rawData"))
+#a <- newSummarisedResult(data = as_tibble(a_original), settings = b)
+# 4. Ahora sí continuas con tu flujo normal usando el nuevo 'a' modificado
+#data <- prepareResult(a, resultList)
+#values <- getValues(a, resultList)
+
+##something like this would go good within study_codde/run_study.R 
+# attr(resultado_original, "settings") <- attr(resultado_original, "settings") |> 
+#   mutate(table_name = case_when(
+#     table_name == "vaccine_washout" ~ "Vaccination records of the overall population",
+#     table_name == "vaccinated_within_campaigns" ~ "Vaccinated eligibles",
+#     table_name == "all_campaigns" ~ "Eligibles for vaccination",
+#     TRUE ~ table_name
+#   ))
+# to finaly do
+# exportSummarisedResult(resultado_original, 
+#                        fileName = "all_results_{date}.csv", 
+#                        path = file.path(getwd(), "rawData"))
+
+
+#i think that shouldnt be there
+# rawData <- omopgenerics::importSummarisedResult(file.path(getwd(), "rawData"))
 
 # load shiny data
 load(fileData)
